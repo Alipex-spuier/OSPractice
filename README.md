@@ -1,2 +1,2 @@
 # OSPractice
-this my operator system practice repo
+this is my operator system practice repo
