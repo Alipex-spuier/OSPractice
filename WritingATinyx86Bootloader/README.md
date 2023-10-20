@@ -442,3 +442,176 @@ msg:    db "Oh boy do I sure love assembly!", 0
 ```
 
 有许多改进的空间，但在学习过程中，我发现这个小程序很有趣。此程序用NASM汇编编写，然后使用Bochs模拟器进行测试。你可以将它写入USB驱动器并在启动计算机时将其引导。有了这个基础，你可以进一步发展自己的引导加载程序或深入研究操作系统开发。如果你想进一步了解NASM、x86汇编语言或引导加载程序的编写，可以查阅相关文档和教程。继续学习，开启更多有趣的探索之旅！
+
+## details
+
+根据上述文章，以下是从头开始编写一个简单的x86引导加载程序的详细步骤。这个示例引导加载程序将清除屏幕、移动光标并在屏幕上输出文本。
+
+**步骤 1：准备开发环境**
+
+首先，确保你的系统上安装了NASM（汇编编译器）和Bochs（x86模拟器）。你可以使用你的Linux发行版的包管理器来安装它们。以下是在Ubuntu上的安装示例：
+
+```bash
+sudo apt-get update
+sudo apt-get install nasm bochs
+```
+
+**步骤 2：创建一个新目录**
+
+创建一个新的目录来容纳你的引导加载程序代码。你可以在终端中使用以下命令创建一个目录：
+
+```bash
+mkdir bootloader_project
+cd bootloader_project
+```
+
+**步骤 3：创建汇编代码文件**
+
+使用文本编辑器创建一个汇编代码文件，你可以使用nano或任何其他你喜欢的文本编辑器。在这个文件中，你将编写引导加载程序的汇编代码。创建一个名为`boot.asm`的文件：
+
+```bash
+nano boot.asm
+```
+
+在 `boot.asm` 文件中，将下面的汇编代码粘贴进去。这个代码将执行屏幕清除、光标移动和文本输出操作。
+
+```assembly
+bits 16
+
+start:
+    mov ax, 0x07C0
+    mov ds, ax
+    mov ax, 0x07E0
+    mov ss, ax
+    mov sp, 0x2000
+
+    call clearscreen
+
+    push 0x0000
+    call movecursor
+    add sp, 2
+
+    push msg
+    call print
+    add sp, 2
+
+    cli
+    hlt
+
+clearscreen:
+    push bp
+    mov bp, sp
+    pusha
+
+    mov ah, 0x07
+    mov al, 0x00
+    mov bh, 0x07
+    mov cx, 0x00
+    mov dh, 0x18
+    mov dl, 0x4f
+    int 0x10
+
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+movecursor:
+    push bp
+    mov bp, sp
+    pusha
+
+    mov dx, [bp+4]
+    mov ah, 0x02
+    mov bh, 0x00
+    int 0x10
+
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+print:
+    push bp
+    mov bp, sp
+    pusha
+
+    mov si, [bp+4]
+    mov bh, 0x00
+    mov bl, 0x00
+    mov ah, 0x0E
+
+.char:
+    mov al, [si]
+    add si, 1
+    or al, al
+    jz .return
+    int 0x10
+    jmp .char
+
+.return:
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+msg db "Hello, Bootloader!", 0
+
+times 510-($-$$) db 0
+dw 0xAA55
+```
+
+**步骤 4：汇编代码**
+
+保存并关闭 `boot.asm` 文件。接下来，使用NASM来将汇编代码编译为二进制文件：
+
+```bash
+nasm -f bin boot.asm -o boot.bin
+```
+
+这将生成一个名为 `boot.bin` 的二进制文件，它是引导加载程序的可执行文件。
+
+**步骤 5：创建Bochs配置文件**
+
+创建一个名为 `bochsrc.txt` 的Bochs配置文件，其中包含有关如何运行Bochs的配置信息。使用文本编辑器创建这个文件：
+
+```bash
+nano bochsrc.txt
+```
+
+将以下内容粘贴到 `bochsrc.txt` 文件中：
+
+```
+megs: 32
+romimage: file=/usr/share/bochs/BIOS-bochs-latest, address=0xfffe0000
+vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
+floppya: 1_44=boot.bin, status=inserted
+boot: a
+log: bochsout.txt
+mouse: enabled=0
+display_library: x, options="gui_debug"
+```
+
+**步骤 6：运行Bochs**
+
+现在，你可以使用Bochs来模拟引导加载程序的运行。在终端中运行以下命令：
+
+```bash
+bochs -f bochsrc.txt
+```
+
+Bochs会加载你的引导加载程序，并在模拟环境中运行它。你应该看到屏幕上输出 "Hello, Bootloader!"。
+
+**步骤 7：在USB驱动器上运行引导加载程序（可选）**
+
+如果你想在物理计算机上运行引导加载程序，可以将编译后的 `boot.bin` 写入一个USB驱动器。首先，插入USB驱动器并找出其设备名称（例如，/dev/sdb）。然后，使用以下命令将引导加载程序写入USB驱动器：
+
+```bash
+sudo dd if=boot.bin of=/dev/sdX bs=512 count=1
+```
+
+将 "of=/dev/sdX" 替换为你的USB驱动器的设备名称，确保不要弄错设备，否则可能会导致数据丢失。
+
+最后，重新启动计算机，并根据需要更改引导顺序以从USB设备启动。你应该能够在物理计算机上看到与Bochs模拟器相同的输出。
+
+这些步骤应该帮助你创建并运行一个简单的x86引导加载程序。这是一个入门级的示例，让你了解引导加载程序的基本概念和操作。如果你想深入学习操作系统开发和引导加载程序的更复杂方面，你可以探索更多的资源和示例。
