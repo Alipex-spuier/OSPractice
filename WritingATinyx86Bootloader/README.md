@@ -131,3 +131,124 @@ msg:    db "Oh boy do I sure love assembly!", 0
 末尾的0用于以空字符终止字符串，这样我们就知道字符串何时结束。我们可以使用_msg_引用该字符串的地址。然后，剩下的部分基本上与我们刚刚在movecursor中看到的类似。我们使用了更多的标签和条件跳转，但为了避免过于详细，代码的理解留给读者自己去练习；)。
 
 这差不多就是了，朋友们。将我们到目前为止拥有的一切连接在一起，我们就得到了以下实际的引导程序。
+```
+bits 16
+
+mov ax, 0x07C0
+mov ds, ax
+mov ax, 0x07E0      ; 07E0h = (07C00h+200h)/10h, beginning of stack segment.
+mov ss, ax
+mov sp, 0x2000      ; 8k of stack space.
+
+call clearscreen
+
+push 0x0000
+call movecursor
+add sp, 2
+
+push msg
+call print
+add sp, 2
+
+cli
+hlt
+
+clearscreen:
+    push bp
+    mov bp, sp
+    pusha
+
+    mov ah, 0x07        ; tells BIOS to scroll down window
+    mov al, 0x00        ; clear entire window
+    mov bh, 0x07        ; white on black
+    mov cx, 0x00        ; specifies top left of screen as (0,0)
+    mov dh, 0x18        ; 18h = 24 rows of chars
+    mov dl, 0x4f        ; 4fh = 79 cols of chars
+    int 0x10        ; calls video interrupt
+
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+movecursor:
+    push bp
+    mov bp, sp
+    pusha
+
+    mov dx, [bp+4]      ; get the argument from the stack. |bp| = 2, |arg| = 2
+    mov ah, 0x02        ; set cursor position
+    mov bh, 0x00        ; page 0 - doesn't matter, we're not using double-buffering
+    int 0x10
+
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+print:
+    push bp
+    mov bp, sp
+    pusha
+    mov si, [bp+4]      ; grab the pointer to the data
+    mov bh, 0x00        ; page number, 0 again
+    mov bl, 0x00        ; foreground color, irrelevant - in text mode
+    mov ah, 0x0E        ; print character to TTY
+.char:
+    mov al, [si]        ; get the current char from our pointer position
+    add si, 1       ; keep incrementing si until we see a null char
+    or al, 0
+    je .return          ; end if the string is done
+    int 0x10            ; print the character if we're not done
+    jmp .char       ; keep looping
+.return:
+    popa
+    mov sp, bp
+    pop bp
+    ret
+
+
+msg:    db "Oh boy do I sure love assembly!", 0
+
+times 510-(\$-$$) db 0
+dw 0xAA55
+
+```
+这里可能有一些不太熟悉的东西。程序的第一行告诉汇编器我们正在使用16位实模式。在我们完成打印后的_cli_和_hlt_两行告诉处理器不接受中断并停止处理。最后，请记住，引导扇区中的代码必须完全是512字节，并以0xAA55结尾。最后两行将二进制文件填充到510字节的长度，并确保文件以适当的引导标志结束。
+
+就是这些了。
+
+哦，你实际上是否想要_运行_这段代码？请将上面的代码保存到一个文件中，比如_boot.asm_。
+
+然后，使用以下命令从我们的汇编引导程序代码生成一个漂亮的二进制文件。
+然后，在相同的目录中，创建一个名为_bochsrc.txt_的文件，并将其填充为以下内容：
+
+```plaintext
+megs: 32
+romimage: file=/usr/share/bochs/BIOS-bochs-latest, address=0xfffe0000
+vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
+floppya: 1_44=boot.com, status=inserted
+boot: a
+log: bochsout.txt
+mouse: enabled=0
+display_library: x, options="gui_debug"
+```
+
+这只包含了一些Bochs的简单配置信息，没有太复杂的内容。基本上，你只是告诉Bochs你的启动介质是一个1.44兆软盘，其中包含了你的二进制文件。最后，你只需要运行以下命令：
+
+```shell
+bochs -f bochsrc.txt
+```
+
+使用你刚刚编写的配置文件来运行Bochs，_voila_，你应该会看到类似以下的东西。
+
+![Bochs Screenshot](https://www.joe-bergeron.com/images/bochs.png)
+
+哇，相当无聊，不是吗？如果你周围有一个USB驱动器，你可以做一些稍微酷一点的事情。插入USB驱动器并找出它的位置（使用dmesg或其他工具）。我的USB驱动器位于_/dev/sdb_。使用_dd_，运行以下命令：
+
+```shell
+sudo dd if=boot.com of=/dev/sdb bs=512 count=1
+```
+这将复制你的引导程序的前512字节（也就是全部），到USB驱动器的第一个512字节。如果你想确保一切都复制得很好，你可以将_if=/dev/sdb_和_of=test.com_，然后比较这两个文件。它们应该是相同的。接下来，只需要重新启动计算机（可能需要更改引导优先级以首先从USB引导），你应该会看到与几分钟前在模拟器中看到的相同无聊的文本。干得好。
+
+再次强调，大多数_真正的_引导程序比这个复杂得多，但我认为这是一个相当好的概念验证/学习工具。_希望_你从中学到了一些东西，我肯定学到了一些，即使最终的结果远远不如我期望的那么令人激动。
